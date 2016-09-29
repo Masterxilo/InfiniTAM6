@@ -157,6 +157,15 @@
 :End:
 
 
+
+:Begin:
+:Function:       sceneEnergy
+:Pattern:        sceneEnergy[id_Integer, eg_Real, er_Real, es_Real, ea_Real, l : {__Real}]
+:Arguments:      { id, eg, er, es, ea, l }
+:ArgumentTypes:  { Integer, Real, Real, Real, Real, RealList }
+:ReturnType:     Real
+:End:
+
 :Begin:
 :Function:       computeArtificialLighting
 :Pattern:        computeArtificialLighting[id_Integer?NonNegative, dir : {_,_,_}?numericVectorQ]

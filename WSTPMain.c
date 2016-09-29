@@ -615,12 +615,47 @@ L0:	return res;
 } /* _tr17 */
 
 
-void computeArtificialLighting P(( int _tp1, double * _tp2, long _tpl2));
+double sceneEnergy P(( int _tp1, double _tp2, double _tp3, double _tp4, double _tp5, double * _tp6, long _tpl6));
 
 #if WSPROTOTYPES
 static int _tr18( WSLINK mlp)
 #else
 static int _tr18(mlp) WSLINK mlp;
+#endif
+{
+	int	res = 0;
+	int _tp1;
+	double _tp2;
+	double _tp3;
+	double _tp4;
+	double _tp5;
+	double * _tp6;
+	long _tpl6;
+	double _rp0;
+	if ( ! WSGetInteger( mlp, &_tp1) ) goto L0;
+	if ( ! WSGetReal( mlp, &_tp2) ) goto L1;
+	if ( ! WSGetReal( mlp, &_tp3) ) goto L2;
+	if ( ! WSGetReal( mlp, &_tp4) ) goto L3;
+	if ( ! WSGetReal( mlp, &_tp5) ) goto L4;
+	if ( ! WSGetRealList( mlp, &_tp6, &_tpl6) ) goto L5;
+	if ( ! WSNewPacket(mlp) ) goto L6;
+
+	_rp0 = sceneEnergy(_tp1, _tp2, _tp3, _tp4, _tp5, _tp6, _tpl6);
+
+	res = WSAbort ?
+		WSPutFunction( mlp, "Abort", 0) : WSPutReal( mlp, _rp0);
+L6:	WSReleaseReal64List(mlp, _tp6, _tpl6);
+L5: L4: L3: L2: L1: 
+L0:	return res;
+} /* _tr18 */
+
+
+void computeArtificialLighting P(( int _tp1, double * _tp2, long _tpl2));
+
+#if WSPROTOTYPES
+static int _tr19( WSLINK mlp)
+#else
+static int _tr19(mlp) WSLINK mlp;
 #endif
 {
 	int	res = 0;
@@ -637,15 +672,15 @@ static int _tr18(mlp) WSLINK mlp;
 L2:	WSReleaseReal64List(mlp, _tp2, _tpl2);
 L1: 
 L0:	return res;
-} /* _tr18 */
+} /* _tr19 */
 
 
 void estimateLighting P(( int _tp1));
 
 #if WSPROTOTYPES
-static int _tr19( WSLINK mlp)
+static int _tr20( WSLINK mlp)
 #else
-static int _tr19(mlp) WSLINK mlp;
+static int _tr20(mlp) WSLINK mlp;
 #endif
 {
 	int	res = 0;
@@ -658,15 +693,15 @@ static int _tr19(mlp) WSLINK mlp;
 	res = 1;
 L1: 
 L0:	return res;
-} /* _tr19 */
+} /* _tr20 */
 
 
 void buildSphereScene P(( int _tp1, double _tp2));
 
 #if WSPROTOTYPES
-static int _tr20( WSLINK mlp)
+static int _tr21( WSLINK mlp)
 #else
-static int _tr20(mlp) WSLINK mlp;
+static int _tr21(mlp) WSLINK mlp;
 #endif
 {
 	int	res = 0;
@@ -681,15 +716,15 @@ static int _tr20(mlp) WSLINK mlp;
 	res = 1;
 L2: L1: 
 L0:	return res;
-} /* _tr20 */
+} /* _tr21 */
 
 
 void renderScene P(( int _tp1, const char * _tp2));
 
 #if WSPROTOTYPES
-static int _tr21( WSLINK mlp)
+static int _tr22( WSLINK mlp)
 #else
-static int _tr21(mlp) WSLINK mlp;
+static int _tr22(mlp) WSLINK mlp;
 #endif
 {
 	int	res = 0;
@@ -704,15 +739,15 @@ static int _tr21(mlp) WSLINK mlp;
 	WSReleaseString(mlp, _tp2);
 L1: 
 L0:	return res;
-} /* _tr21 */
+} /* _tr22 */
 
 
 void processFrame P(( int _tp1, int _tp2));
 
 #if WSPROTOTYPES
-static int _tr22( WSLINK mlp)
+static int _tr23( WSLINK mlp)
 #else
-static int _tr22(mlp) WSLINK mlp;
+static int _tr23(mlp) WSLINK mlp;
 #endif
 {
 	int	res = 0;
@@ -726,30 +761,10 @@ static int _tr22(mlp) WSLINK mlp;
 	res = 1;
  L1: 
 L0:	return res;
-} /* _tr22 */
-
-
-void assertFalse P(( void));
-
-#if WSPROTOTYPES
-static int _tr23( WSLINK mlp)
-#else
-static int _tr23(mlp) WSLINK mlp;
-#endif
-{
-	int	res = 0;
-	if ( ! WSNewPacket(mlp) ) goto L0;
-	if( !mlp) return res; /* avoid unused parameter warning */
-
-	assertFalse();
-
-	res = 1;
-
-L0:	return res;
 } /* _tr23 */
 
 
-void assertGPUFalse P(( void));
+void assertFalse P(( void));
 
 #if WSPROTOTYPES
 static int _tr24( WSLINK mlp)
@@ -761,7 +776,7 @@ static int _tr24(mlp) WSLINK mlp;
 	if ( ! WSNewPacket(mlp) ) goto L0;
 	if( !mlp) return res; /* avoid unused parameter warning */
 
-	assertGPUFalse();
+	assertFalse();
 
 	res = 1;
 
@@ -769,12 +784,32 @@ L0:	return res;
 } /* _tr24 */
 
 
+void assertGPUFalse P(( void));
+
+#if WSPROTOTYPES
+static int _tr25( WSLINK mlp)
+#else
+static int _tr25(mlp) WSLINK mlp;
+#endif
+{
+	int	res = 0;
+	if ( ! WSNewPacket(mlp) ) goto L0;
+	if( !mlp) return res; /* avoid unused parameter warning */
+
+	assertGPUFalse();
+
+	res = 1;
+
+L0:	return res;
+} /* _tr25 */
+
+
 static struct func {
 	int   f_nargs;
 	int   manual;
 	int   (*f_func)P((WSLINK));
 	const char  *f_name;
-	} _tramps[25] = {
+	} _tramps[26] = {
 		{ 0, 0, _tr0, "Get42" },
 		{ 1, 0, _tr1, "createScene" },
 		{ 1, 0, _tr2, "getSceneVoxelSize" },
@@ -793,13 +828,14 @@ static struct func {
 		{ 4, 0, _tr15, "meshSceneWithShader" },
 		{ 2, 0, _tr16, "initFineFromCoarse" },
 		{ 6, 0, _tr17, "refineScene" },
-		{ 2, 0, _tr18, "computeArtificialLighting" },
-		{ 1, 0, _tr19, "estimateLighting" },
-		{ 2, 0, _tr20, "buildSphereScene" },
-		{ 2, 2, _tr21, "renderScene" },
-		{ 2, 2, _tr22, "processFrame" },
-		{ 0, 0, _tr23, "assertFalse" },
-		{ 0, 0, _tr24, "assertGPUFalse" }
+		{ 6, 0, _tr18, "sceneEnergy" },
+		{ 2, 0, _tr19, "computeArtificialLighting" },
+		{ 1, 0, _tr20, "estimateLighting" },
+		{ 2, 0, _tr21, "buildSphereScene" },
+		{ 2, 2, _tr22, "renderScene" },
+		{ 2, 2, _tr23, "processFrame" },
+		{ 0, 0, _tr24, "assertFalse" },
+		{ 0, 0, _tr25, "assertGPUFalse" }
 		};
 
 static const char* evalstrs[] = {
@@ -858,13 +894,14 @@ int WSInstall(mlp) WSLINK mlp;
 	if (_res) _res = _definepattern(mlp, (char *)"meshSceneWithShader[id_Integer?NonNegative, fn_String, shader_String, shaderParam_Real]", (char *)"{ id, fn, shader, shaderParam }", 15);
 	if (_res) _res = _definepattern(mlp, (char *)"initFineFromCoarse[idFine_Integer, idCoarse_Integer] /; (idFine != idCoarse)", (char *)"{ idFine, idCoarse }", 16);
 	if (_res) _res = _definepattern(mlp, (char *)"refineScene[id_Integer, eg_Real, er_Real, es_Real, ea_Real, l : {__Real}]", (char *)"{ id, eg, er, es, ea, l }", 17);
-	if (_res) _res = _definepattern(mlp, (char *)"computeArtificialLighting[id_Integer?NonNegative, dir : {_,_,_}?numericVectorQ]", (char *)"{ id, dir}", 18);
-	if (_res) _res = _definepattern(mlp, (char *)"estimateLighting[id_Integer?NonNegative]", (char *)"{ id }", 19);
-	if (_res) _res = _definepattern(mlp, (char *)"buildSphereScene[id_Integer?NonNegative, rad_Real]", (char *)"{ id, rad }", 20);
-	if (_res) _res = _definepattern(mlp, (char *)"renderScene[         id_Integer?NonNegative,          shader_String,         (* Manual *)         poseWorldToView_?PoseMatrixQ,         rgbIntrinsics : NamelessIntrinsicsPattern[]     ]", (char *)"{ id, shader, poseWorldToView, rgbIntrinsics }", 21);
-	if (_res) _res = _definepattern(mlp, (char *)"processFrame[doTracking : 0|1     , id_Integer?NonNegative     (* Manual *)     , rgbaByteImage_ /;TensorQ[rgbaByteImage, IntegerQ] && Last@Dimensions@rgbaByteImage == 4     , depthData_?NumericMatrixQ     , poseWorldToView_?PoseMatrixQ     , intrinsicsRgb : NamelessIntrinsicsPattern[]     , intrinsicsD : NamelessIntrinsicsPattern[]     , rgbToDepth_?PoseMatrixQ     ]", (char *)"{ doTracking, id, rgbaByteImage, depthData, poseWorldToView, intrinsicsRgb, intrinsicsD, rgbToDepth }", 22);
-	if (_res) _res = _definepattern(mlp, (char *)"assertFalse[]", (char *)"{ }", 23);
-	if (_res) _res = _definepattern(mlp, (char *)"assertGPUFalse[]", (char *)"{ }", 24);
+	if (_res) _res = _definepattern(mlp, (char *)"sceneEnergy[id_Integer, eg_Real, er_Real, es_Real, ea_Real, l : {__Real}]", (char *)"{ id, eg, er, es, ea, l }", 18);
+	if (_res) _res = _definepattern(mlp, (char *)"computeArtificialLighting[id_Integer?NonNegative, dir : {_,_,_}?numericVectorQ]", (char *)"{ id, dir}", 19);
+	if (_res) _res = _definepattern(mlp, (char *)"estimateLighting[id_Integer?NonNegative]", (char *)"{ id }", 20);
+	if (_res) _res = _definepattern(mlp, (char *)"buildSphereScene[id_Integer?NonNegative, rad_Real]", (char *)"{ id, rad }", 21);
+	if (_res) _res = _definepattern(mlp, (char *)"renderScene[         id_Integer?NonNegative,          shader_String,         (* Manual *)         poseWorldToView_?PoseMatrixQ,         rgbIntrinsics : NamelessIntrinsicsPattern[]     ]", (char *)"{ id, shader, poseWorldToView, rgbIntrinsics }", 22);
+	if (_res) _res = _definepattern(mlp, (char *)"processFrame[doTracking : 0|1     , id_Integer?NonNegative     (* Manual *)     , rgbaByteImage_ /;TensorQ[rgbaByteImage, IntegerQ] && Last@Dimensions@rgbaByteImage == 4     , depthData_?NumericMatrixQ     , poseWorldToView_?PoseMatrixQ     , intrinsicsRgb : NamelessIntrinsicsPattern[]     , intrinsicsD : NamelessIntrinsicsPattern[]     , rgbToDepth_?PoseMatrixQ     ]", (char *)"{ doTracking, id, rgbaByteImage, depthData, poseWorldToView, intrinsicsRgb, intrinsicsD, rgbToDepth }", 23);
+	if (_res) _res = _definepattern(mlp, (char *)"assertFalse[]", (char *)"{ }", 24);
+	if (_res) _res = _definepattern(mlp, (char *)"assertGPUFalse[]", (char *)"{ }", 25);
 	if (_res) _res = _doevalstr( mlp, 3);
 	if (_res) _res = _doevalstr( mlp, 4);
 	if (_res) _res = _doevalstr( mlp, 5);
@@ -880,7 +917,7 @@ int WSDoCallPacket( WSLINK mlp)
 int WSDoCallPacket( mlp) WSLINK mlp;
 #endif
 {
-	return _WSDoCallPacket( mlp, _tramps, 25);
+	return _WSDoCallPacket( mlp, _tramps, 26);
 } /* WSDoCallPacket */
 
 /******************************* begin trailer ********************************/

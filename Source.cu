@@ -345,7 +345,7 @@ TEST(testdofor) {
 GLOBAL(
     int,
     dprintEnabled,
-    true,
+    false,
     "if true, dprintf writes to stdout, otherwise dprintf does nothing"
     "It would be more efficient to compile with dprintf defined to nothing of course"
     "Default: true"
@@ -2199,6 +2199,10 @@ FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool bui
 template<typename f>
 FUNCTION(void, solve, (SOPPartition<f>* const sop, cs const * const J, MEMPOOL), "");
 
+template<typename f>
+FUNCTION(float, getPartitionEnergy, (SOPPartition<f>* const sop), "");
+
+
 /*
 The type f provides the following static members:
 * const unsigned int lengthz, > 0
@@ -2250,7 +2254,15 @@ public:
         }
     }
 
+    float getEnergy() /*const */{
+        float e = 0.f;
+        DO(i, partitions) e += getPartitionEnergy(&partitionTable[i]);
+        return e;
+    }
+
     void solve(_In_ const unsigned int iterations = 1) {
+
+        dprintf("SOPDProblem::solve\n");
         DO(i, partitions) buildFxAndJFxAndSolveRepeatedly(i, iterations); // TODO parallelize partitions
     }
 
@@ -2635,6 +2647,13 @@ FUNCTION(
     return assertFinite(x);
 }
 
+
+template<typename f>
+FUNCTION(float, getPartitionEnergy, (SOPPartition<f>* const sop), "") {
+    buildFx(sop);
+    return norm2Fx(sop);
+}
+
 template<typename f>
 FUNCTION(
     float,
@@ -2888,11 +2907,28 @@ vector<float> SOPDProblemMakeSolveGetX(
     _In_ const vector<vector<unsigned int>>& yIndicesPerPartition,
     _In_ const vector<vector<unsigned int>>& sparseDerivativeZtoYIndicesPerPartition,
     _In_ const unsigned int iterations = 1) {
+
+    dprintf("SOPDProblemMakeSolveGetX\n");
     SOPDProblem<f> p(x, xIndicesPerPartition, yIndicesPerPartition, sparseDerivativeZtoYIndicesPerPartition);
     p.solve(iterations); // TODO supply iteration count
     return p.getX();
 }
 
+// f like f for SOPDProblem
+// assumes basic sanity checks to xIndicesPerPartition etc have been done
+template<typename f>
+float SOPDProblemMakeGetEnergy(
+    _In_ const vector<float>& x,
+    _In_ const vector<vector<unsigned int>>& xIndicesPerPartition,
+    _In_ const vector<vector<unsigned int>>& yIndicesPerPartition,
+    _In_ const vector<vector<unsigned int>>& sparseDerivativeZtoYIndicesPerPartition,
+    _In_ const unsigned int iterations = 1) {
+
+    dprintf("SOPDProblemMakeGetEnergy\n");
+    SOPDProblem<f> p(x, xIndicesPerPartition, yIndicesPerPartition, sparseDerivativeZtoYIndicesPerPartition);
+    float y = p.getEnergy();
+    return y;
+}
 
 // --- end of SOPCompiled framework ---
 
@@ -3149,6 +3185,8 @@ void SOPxIndices(
     _In_ const function<vector<X>(PT)>& sigma,
     _Out_ vector<unsigned int>& xIndices
     ) {
+
+    dprintf("SOPxIndices\n");
     assert(P.size() > 0);
     assert(locateInX);
     assert(sigma);
@@ -3213,6 +3251,8 @@ void SOPyIndices(
     _In_ const function<unsigned int(X)> locateInX, const _In_ vector<X>& Y,
     _Out_ vector<unsigned int>& yIndices
     ) {
+
+    dprintf("SOPyIndices\n");
     assert(Y.size() > 0);
     assert(locateInX);
     assert(yIndices.size() == 0);
@@ -3220,16 +3260,16 @@ void SOPyIndices(
     yIndices.resize(Y.size());
 
     // --
-    transform(Y.begin(), Y.end(),
-        yIndices.begin(), locateInX);
+    //transform(Y.begin(), Y.end(),
+    //    yIndices.begin(), locateInX);
     // or
-    /*
+    
     unsigned int i = 0;
     for (const auto& y : Y) {
     yIndices[i++] = locateInX(y);
     }
-    assert(i == xIndices.size());
-    */
+    assert(i == yIndices.size());
+    
     // --
 }
 
@@ -3292,6 +3332,7 @@ void SOPsparseDerivativeZtoYIndices(
 
     _Out_ vector<unsigned int>& sparseDerivativeZtoYIndices
     ) {
+    dprintf("SOPsparseDerivativeZtoYIndices\n");
     assert(P.size() > 0);
     assert(locateInX);
     assert(locateInY.size() > 0);
@@ -3361,6 +3402,8 @@ void prepareSOPCompiledInputForOnePartition(
 
     _Out_ vector<unsigned int>& xIndices, _Out_ vector<unsigned int>& sparseDerivativeZtoYIndices, _Out_ vector<unsigned int>& yIndices
     ) {
+
+    dprintf("prepareSOPCompiledInputForOnePartition\n");
     assert(locateInX);
     assert(Y.size() > 0);
     //assert(y.size() <= x.size()); // at most as many variables optimized over as there are x // cannot be verified because x is given implicitly
@@ -3380,7 +3423,7 @@ void prepareSOPCompiledInputForOnePartition(
     // Compute index sets
     SOPxIndices(locateInX, P, sigma,
         xIndices);
-    SOPyIndices(locateInX, Y,
+     SOPyIndices(locateInX, Y,
         yIndices);
     SOPsparseDerivativeZtoYIndices(locateInX, locateInY, P, sigma,
         sparseDerivativeZtoYIndices);
@@ -3434,6 +3477,28 @@ vector<float> SOPDCompiledSolve(
     assert(xSolution.size() == x.size());
 
     return xSolution;
+}
+
+template<typename f>
+float SOPDCompiledEnergy(
+    _In_ const vector<float>& x,
+    _In_ const vector<vector<unsigned int>>& xIndicesPerPartition,
+    _In_ const vector<vector<unsigned int>>& yIndicesPerPartition,
+    _In_ const vector<vector<unsigned int>>& sparseDerivativeZtoYIndicesPerPartition,
+    _In_ const unsigned int iterations = 1) {
+    assert(x.size() > 0);
+    // forall(i) assert(xIndicesPerPartition[i].size() >= ps[i].size()); // there are at least as many indices into x as there are points, since f has at least 1 argument
+    assert(xIndicesPerPartition.size() > 0);
+    assert(yIndicesPerPartition.size() == xIndicesPerPartition.size());
+    assert(yIndicesPerPartition.size() == sparseDerivativeZtoYIndicesPerPartition.size());
+    static_assert(f::lengthz > 0, "");
+    static_assert(f::lengthfz > 0, "");
+
+    // TODO implement passing these parameters to the functions from the SOPCompiledFramework
+    // make the SOP compiled framework take f as a template parameter as above (but still work with compiled and implicit f -- or copy the code here and adjust)
+    // or extract the parts we can share
+
+    return SOPDProblemMakeGetEnergy<f>(x, xIndicesPerPartition, yIndicesPerPartition, sparseDerivativeZtoYIndicesPerPartition, iterations);
 }
 
 /*
@@ -3506,6 +3571,54 @@ void SOPDSolve(
 
 
 
+template<typename X, typename PT, typename fSigma>
+float SOPDEnergy(
+    _Inout_ unordered_map<X, float>& x,
+    _In_ const vector<vector<PT>>& ps,
+    _In_ const vector<vector<X>>& ys,
+    _In_ const unsigned int iterations = 1) {
+    assert(iterations > 0);
+    assert(ps.size() > 0);
+    assert(ps.size() == ys.size()); // amount of partitions
+    assert(x.size() > 0);
+    assert(ys[0].size() > 0);
+    assert(ps[0].size() > 0);
+
+    static_assert(fSigma::lengthz > 0, "lengthz must be positive");
+    static_assert(fSigma::lengthfz > 0, "lengthfz must be positive");
+    assert(&fSigma::sigma);
+    assert(fSigma::sigma(ps[0][0]).size() > 0);
+    assert(&fSigma::f);
+    assert(&fSigma::df);
+
+    const unsigned int partitions = restrictSize(ps.size());
+    assert(partitions > 0);
+
+    // prepare x
+    function<unsigned int(X)> locateInX;
+    vector<float> xVector;
+    linearize(x, xVector, locateInX);
+
+    // prepare indices
+    vector<vector<unsigned int>> xIndicesPerPartition(partitions);
+    vector<vector<unsigned int>> yIndicesPerPartition(partitions);
+    vector<vector<unsigned int>> sparseDerivativeZtoYIndicesPerPartition(partitions);
+    DO(i, partitions) {
+        prepareSOPCompiledInputForOnePartition<X, PT>(
+            /* in */
+            locateInX, ys[i], ps[i], &fSigma::sigma,
+            /* out */
+            xIndicesPerPartition[i], sparseDerivativeZtoYIndicesPerPartition[i], yIndicesPerPartition[i]
+            );
+
+        assert(xIndicesPerPartition[i].size() > 0);
+        assert(sparseDerivativeZtoYIndicesPerPartition[i].size() > 0); // todo there should be at least one row {k, y-ind,z-ind} in this array with k!=0
+        assert(yIndicesPerPartition[i].size() > 0);
+    }
+
+    // solve compiled
+    return SOPDCompiledEnergy<fSigma>(xVector, xIndicesPerPartition, yIndicesPerPartition, sparseDerivativeZtoYIndicesPerPartition, iterations);
+}
 
 
 
@@ -3590,6 +3703,17 @@ TEST(SOPDSolve1) {
 
     assert(1 == x.size());
     assert(approximatelyEqual(x[e1x], 1.f), "%f", x[e1x]);
+}
+
+// Energy: 1.f for non solved, 0. for solved
+TEST(SOPDEnergy1) {
+    unordered_map<Example1X, float> x = {{e1x, 2.f}};
+
+    assert((SOPDEnergy<Example1X, Example1P, Example1fSigma>(x, {{e1p0}}, {{e1x}}) == 1.f));
+
+    SOPDSolve<Example1X, Example1P, Example1fSigma>(x, {{e1p0}}, {{e1x}});
+
+    assert((SOPDEnergy<Example1X, Example1P, Example1fSigma>(x, {{e1p0}}, {{e1x}}) == 0.f));
 }
 
 /* example 2, nonlinear: root of 2.
@@ -12188,6 +12312,8 @@ vector<Vector3i> getVoxelPositions(Scene const* const scene) {
 }
 
 vector<vector<Vector3i>> getVoxelPositionsBlockwise(Scene const* const scene) {
+
+    printf("getVoxelPositionsBlockwise start\n");
     vector<vector<Vector3i>> ps;
     ps.reserve(scene->countVoxelBlocks()); // optimization hint
     DO1(i, scene->countVoxelBlocks()) {
@@ -12198,6 +12324,7 @@ vector<vector<Vector3i>> getVoxelPositionsBlockwise(Scene const* const scene) {
         ps.push_back(p);
     }
     assert(ps.size() > 0);
+    printf("getVoxelPositionsBlockwise end\n");
     return ps;
 }
 
@@ -12637,7 +12764,7 @@ void enterVoxelBlockData(_Inout_ unordered_map<XVarName, float>& xm, ITMVoxelBlo
 }
 
 // when calling this, d and a must have been initialized
-unordered_map<XVarName, float> getSceneData(Scene* scene) {
+unordered_map<XVarName, float> getSceneData(const Scene* const scene) {
     printf("getSceneData start\n");
     scene->localVBA.Synchronize();
 
@@ -12774,6 +12901,9 @@ TEST(updateSceneData1) {
 
 
 
+#include "$CFormDefines.cpp"  /* generated for problem, rarely changes */  // Required for including *working* definitions of f and df -- this defines what times(x,y) etc. mean
+#define x(i) input[i] /* definitions of f/df use x(i) to refer to input[], c.f. RIFunctionCForm* */
+
 
 /*
 Local energy function defining the refinement objective.
@@ -12795,11 +12925,6 @@ struct fSigma {
         return sigmap;
     }
 
-    static const unsigned int lengthz = 
-#include "simplef/lengthz.cpp"
-        , lengthfz =
-#include "simplef/lengthfz.cpp"
-        ;
 
     static
         MEMBERFUNCTION(void, f, (_In_reads_(lengthz) const float* const input, _Out_writes_all_(lengthfz) float* const out),
@@ -12819,15 +12944,59 @@ struct fSigma {
 #include "simplef/df.cpp"
 
     }*/
+
+    static
+        CPU_FUNCTION(vector<XVarName>, sigma, (Vector3i p), "the per-point data selector function") {
+        DBG_UNREFERENCED_PARAMETER(p);
+        vector<XVarName> sigmap =
+#include "simplef/sigmap.cpp"
+            ;
+
+        assert(sigmap.size() == lengthz);
+        return sigmap;
+    }
+
+    static const unsigned int lengthz =
+#include "simplef/lengthz.cpp"
+        , lengthfz =
+#include "simplef/lengthfz.cpp"
+        ;
+
+    static
+        MEMBERFUNCTION(void, f, (_In_reads_(lengthz) const float* const input, _Out_writes_all_(lengthfz) float* const out),
+        "per point energy"){
+#include "simplef/f.cpp"
+    }
+    static
+        MEMBERFUNCTION(void, df, (_In_range_(0, lengthz - 1) unsigned int const i, _In_reads_(lengthz) float const * const input, _Out_writes_all_(lengthfz) float * const out), "the partial derivatives of f") {
+        DBG_UNREFERENCED_PARAMETER(input);
+        assert(i < lengthz);
+#include "simplef/df.cpp"
+    }
 };
 
-// d and a must have been initialized (sanity checks for their range, even if not used in optimization)
-void refineScene(Scene* scene, 
+#undef x
+
+// Computes x, points and ys as needed for the SOP describing the optimization
+// Output lists should initially be empty.
+void refinement_x_points_ys(
+    _In_ Scene const * const scene,
     // energy term weights // TODO make more generic
-    float eg, float er, float es, float ea,
+    _In_ const float eg, _In_ const float er, _In_ const float es, _In_ const float ea,
     // lighting model parameters
-    float* l, unsigned int lSize
+    _In_ const const float* const l, _In_ const unsigned int lSize,
+    
+    _Out_ unordered_map<XVarName, float>& x,
+    _Out_ vector<vector<Vector3i>>& points,
+    _Out_ vector<vector<XVarName>>& ys
+    
     ) {
+    printf("refinement_x_points_ys start\n");
+    assert(0 == x.size());
+    assert(0 == points.size());
+    assert(0 == ys.size());
+
+    // 1. translate infinitam data to x vector
     assert(lSize < 100); // sanity check
     assert(eg >= 0); // sanity check
     assert(er >= 0); // sanity check
@@ -12835,7 +13004,8 @@ void refineScene(Scene* scene,
     assert(ea >= 0); // sanity check
 
     printf("refineScene start\n");
-    auto x = getSceneData(scene);
+    x = getSceneData(scene);
+    assert(x.size() > 0);
 
     x[XVarName::eg()] = eg;
     x[XVarName::er()] = er;
@@ -12846,16 +13016,96 @@ void refineScene(Scene* scene,
 
     printf("scene data stats: size %d, load_factor %f\n", x.size(), x.load_factor());
 
-    // TODO enhance x using fSigma
+    // 2. determine points at which the energy can be computed, decomposed into independent blocks
+    points = getVoxelPositionsBlockwise(scene);// TODO should use getOptimizationBlocks for real energy, which accesses the whole 1-neighborhood
 
+    assert(points.size() > 0);
+
+    // 3. determine variables over which we optimize (y)
+
+    // TODO externalize to a function
+    // optimizing over a and d at each point where the energy is computed
+
+
+    printf("building y start\n");
+    for (const auto& block : points) {
+        vector<XVarName> y;
+        for (const auto& p : block) {
+            y.push_back(XVarName::a(p));
+            y.push_back(XVarName::d(p));
+        }
+        ys.push_back(y);
+    }
+    printf("building y end\n");
+
+    assert(ys.size() > 0);
+    assert(ys.size() == points.size());
+    printf("refinement_x_points_ys end\n");
+}
+
+// d and a must have been initialized (sanity checks for their range, even if not used in optimization)
+void refineScene(Scene* scene, 
+    // energy term weights // TODO make more generic
+    float eg, float er, float es, float ea,
+    // lighting model parameters
+    const float* const l, unsigned int lSize
+    ) {
+
+    unordered_map<XVarName, float> x;
+    vector<vector<Vector3i>> points;
+    vector<vector<XVarName>> ys;
+    refinement_x_points_ys(scene, eg, er, es, ea, l, lSize,
+        x,points, ys);
+
+    // 4. solve, enhance x using fSigma
+    SOPDSolve<XVarName, Vector3i, fSigma>(x, points, ys);
+
+    // 5. Convert back the result
     updateFromSceneData(scene, x);
     printf("refineScene end\n");
 }
 
+float sceneEnergy(Scene* scene,
+    // energy term weights // TODO make more generic
+    float eg, float er, float es, float ea,
+    // lighting model parameters
+    const float* const l, unsigned int lSize
+    ) {
+    unordered_map<XVarName, float> x;
+    vector<vector<Vector3i>> points;
+    vector<vector<XVarName>> ys;
+    refinement_x_points_ys(scene, eg, er, es, ea, l, lSize,
+        x, points, ys);
 
+    return SOPDEnergy<XVarName, Vector3i, fSigma>(x, points, ys);;
+}
 
+TEST(refineScene1) {
+    Scene* scene = new Scene();
 
+    // at least one block should be optimizable here
+    scene->performVoxelBlockAllocation(VoxelBlockPos(0, 0, 0));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(1, 0, 0));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(0, 1, 0));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(1, 1, 0));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(0, 0, 1));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(1, 0, 1));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(0, 1, 1));
+    scene->performVoxelBlockAllocation(VoxelBlockPos(1, 1, 1));
 
+    initAD(scene);
+
+    const unsigned int exampleLSize = 3;
+    const float exampleL[] = {1., 1., 1.};
+
+    const float eg = 1.f, er = 1.f, es = 1.f, ea = 1.f;
+    const float e0 = sceneEnergy(scene, eg, er, es, ea, exampleL, exampleLSize);
+    assert(assertFinite(e0) >= 0.f);
+    refineScene(scene, eg, er, es, ea, exampleL, exampleLSize);
+    //assert(e0 < sceneEnergy());
+
+    delete scene;
+}
 
 
 
@@ -13287,6 +13537,23 @@ extern "C" {
 
 
         WL_RETURN_VOID(); // don't forget
+    }
+
+    double sceneEnergy(int id,
+        // energy term weights // TODO make more generic
+        double eg, double er, double es, double ea,
+        // lighting model parameters
+        double* l, long lSize
+        ) {
+        assert(lSize >= 1);
+        auto lf = new float[lSize];
+        DO(i, lSize) lf[i] = l[i];
+
+        float y = sceneEnergy(getScene(id), eg, er, es, ea, lf, lSize);
+
+        delete[] lf;
+
+        return y;
     }
 
     void processFrame(int doTracking, int id) {

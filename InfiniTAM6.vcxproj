@@ -95,7 +95,6 @@
       <Command>wsprep WSTPTemplateFile.tm &gt; WSTPMain.c &amp;&amp; trykill $(TargetFileName)</Command>
     </PreBuildEvent>
     <CudaCompile>
-      <AdditionalOptions>-maxrregcount 97 %(AdditionalOptions)</AdditionalOptions>
       <MaxRegCount>97</MaxRegCount>
     </CudaCompile>
   </ItemDefinitionGroup>
