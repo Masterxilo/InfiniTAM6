@@ -10,10 +10,10 @@
 NotebookFileLineBreakTest
 NotebookFileLineBreakTest
 NotebookDataPosition[       158,          7]
-NotebookDataLength[     21973,        550]
-NotebookOptionsPosition[     21616,        533]
-NotebookOutlinePosition[     21959,        548]
-CellTagsIndexPosition[     21916,        545]
+NotebookDataLength[     22076,        553]
+NotebookOptionsPosition[     21716,        536]
+NotebookOutlinePosition[     22061,        551]
+CellTagsIndexPosition[     22018,        548]
 WindowFrame->Normal*)
 
 (* Beginning of Notebook Content *)
@@ -24,11 +24,11 @@ Cell[BoxData[{
  RowBox[{"Install", "[", 
   RowBox[{
    RowBox[{"NotebookDirectory", "[", "]"}], "~", "FileNameJoin", "~", 
-   "\"\<x64/Debug/InfiniTAM6.exe\>\""}], "]"}], "\[IndentingNewLine]", 
+   "\"\<InfiniTAM6.exe\>\""}], "]"}], "\[IndentingNewLine]", 
  RowBox[{
   RowBox[{"Get42", "[", "]"}], "~", "VerificationTest", "~", "42"}]}], "Input",
  CellChangeTimes->{{3.6839678195110016`*^9, 3.6839678490080013`*^9}, {
-  3.6839678849256015`*^9, 3.6839679026897306`*^9}}],
+   3.6839678849256015`*^9, 3.6839679026897306`*^9}, 3.684666627494269*^9}],
 
 Cell[BoxData[
  InterpretationBox[
@@ -129,7 +129,7 @@ GzMvKcH1o4cXABG3d/Y=
               StyleBox[
                
                PaneBox["\<\"\\\"J:\\\\Masterarbeit\\\\Implementation\\\\\
-InfiniTAM6\\\\x64\\\\Debug\\\\InfiniTAM6.exe\\\"\"\>",
+InfiniTAM6\\\\InfiniTAM6.exe\\\"\"\>",
                 BaselinePosition->Baseline,
                 ContentPadding->False,
                 FrameMargins->0,
@@ -249,7 +249,7 @@ GzMvKcH1o4cXABG3d/Y=
              TagBox[
               
               PaneBox["\<\"\\\"J:\\\\Masterarbeit\\\\Implementation\\\\\
-InfiniTAM6\\\\x64\\\\Debug\\\\InfiniTAM6.exe\\\"\"\>",
+InfiniTAM6\\\\InfiniTAM6.exe\\\"\"\>",
                BaselinePosition->Baseline,
                ContentPadding->False,
                FrameMargins->0,
@@ -290,13 +290,14 @@ InfiniTAM6\\\\x64\\\\Debug\\\\InfiniTAM6.exe\\\"\"\>",
      BaselinePosition->Baseline],
     DynamicModuleValues:>{}], "]"}],
   LinkObject[
-  "\"J:\\Masterarbeit\\Implementation\\InfiniTAM6\\x64\\Debug\\InfiniTAM6.exe\
-\"", 13943, 15],
+  "\"J:\\Masterarbeit\\Implementation\\InfiniTAM6\\InfiniTAM6.exe\"", 12121, 
+   13],
   Editable->False,
   SelectWithContents->True,
   Selectable->False]], "Output",
  CellChangeTimes->{
-  3.6839678667483163`*^9, {3.6839679002055254`*^9, 3.683967910794604*^9}}],
+  3.6839678667483163`*^9, {3.6839679002055254`*^9, 3.683967910794604*^9}, {
+   3.68466662381866*^9, 3.6846666287538276`*^9}}],
 
 Cell[BoxData[
  InterpretationBox[
@@ -484,7 +485,8 @@ Cell[BoxData[
                TagBox[
                 
                 TemplateBox[{
-                 "0``7.1505149978319915","\"s\"","seconds","\"Seconds\""},
+                 "0.0020039`4.452391043105142","\"s\"","seconds",
+                  "\"Seconds\""},
                  "Quantity"],
                 Short[#, 
                  Rational[2, 3]]& ],
@@ -517,22 +519,23 @@ Cell[BoxData[
     DynamicModuleValues:>{}], "]"}],
   TestResultObject[
    Association[
-   "TestIndex" -> 21, "TestID" -> None, "Outcome" -> "Success", "Input" -> 
+   "TestIndex" -> 3, "TestID" -> None, "Outcome" -> "Success", "Input" -> 
     HoldForm[
       $CellContext`Get42[]], "ExpectedOutput" -> HoldForm[42], "ActualOutput" -> 
     HoldForm[42], "ExpectedMessages" -> {}, "ActualMessages" -> {}, 
-    "AbsoluteTimeUsed" -> Quantity[0``7.1505149978319915, "Seconds"], 
+    "AbsoluteTimeUsed" -> Quantity[0.0020039`4.452391043105142, "Seconds"], 
     "CPUTimeUsed" -> Quantity[0., "Seconds"], "MemoryUsed" -> 
-    Quantity[152, "Bytes"]]],
+    Quantity[3104, "Bytes"]]],
   Editable->False,
   SelectWithContents->True,
   Selectable->False]], "Output",
  CellChangeTimes->{
-  3.6839678667483163`*^9, {3.6839679002055254`*^9, 3.6839679108258543`*^9}}]
+  3.6839678667483163`*^9, {3.6839679002055254`*^9, 3.683967910794604*^9}, {
+   3.68466662381866*^9, 3.684666628784884*^9}}]
 }, Open  ]]
 },
 WindowSize->{944, 1021},
-WindowMargins->{{Automatic, -25}, {Automatic, 0}},
+WindowMargins->{{Automatic, 129}, {Automatic, 182}},
 FrontEndVersion->"11.0 for Microsoft Windows (64-bit) (July 28, 2016)",
 StyleDefinitions->"Default.nb"
 ]
@@ -548,9 +551,9 @@ CellTagsIndex->{}
 (*NotebookFileOutline
 Notebook[{
 Cell[CellGroupData[{
-Cell[580, 22, 407, 8, 75, "Input"],
-Cell[990, 32, 12545, 266, 103, "Output"],
-Cell[13538, 300, 8062, 230, 101, "Output"]
+Cell[580, 22, 420, 8, 75, "Input"],
+Cell[1003, 32, 12554, 267, 103, "Output"],
+Cell[13560, 301, 8140, 232, 101, "Output"]
 }, Open  ]]
 }
 ]
