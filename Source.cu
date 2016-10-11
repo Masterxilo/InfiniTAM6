@@ -484,7 +484,9 @@ FUNCTION(
 
 
 
-FUNCTION(unsigned int, toLinearId, (const dim3 dim, const uint3 id), "3d to 1d coordinate conversion (think 3-digit mixed base number, where dim is the bases and id the digits)", PURITY_PURE) {
+FUNCTION(unsigned int, toLinearId, (const dim3 dim, const uint3 id)
+    , "3d to 1d coordinate conversion (think 3-digit mixed base number, where dim is the bases and id the digits)"
+    "The digits in id may not be larger than dim", PURITY_PURE) {
     assert(id.x < dim.x);
     assert(id.y < dim.y);
     assert(id.z < dim.z); // actually, the highest digit (or all digits) could be allowed to be anything, but then the representation would not be unique
@@ -496,22 +498,22 @@ FUNCTION(unsigned int, toLinearId2D, (const dim3 dim, const uint3 id), "", PURIT
     return toLinearId(dim, id);
 }
 
-CUDA_FUNCTION(uint,linear_threadIdx,(),"") {
+CUDA_FUNCTION(uint,linear_threadIdx,(),"", PURITY_ENVIRONMENT_DEPENDENT) {
     return toLinearId(blockDim, threadIdx);
 }
 
-CUDA_FUNCTION(uint,linear_blockIdx,(),"") {
+CUDA_FUNCTION(uint, linear_blockIdx, (), "", PURITY_ENVIRONMENT_DEPENDENT) {
     return toLinearId(gridDim, blockIdx);
 }
 
 // PCFunction[uint, volume, {{dim3, d}}, "C110", Pure, d.x*d.y*d.z.w]
-FUNCTION(unsigned int, volume, (dim3 d), "C110", PURITY_PURE) {
+FUNCTION(unsigned int, volume, (dim3 d), "C110. Undefined where the product would overflow", PURITY_PURE) {
     return d.x*d.y*d.z;
 }
 
 
 // Universal thread identifier
-FUNCTION(uint,linear_global_threadId,(),"") {
+FUNCTION(uint, linear_global_threadId, (), "", PURITY_ENVIRONMENT_DEPENDENT) {
 #if GPU_CODE
     return linear_blockIdx() * volume(blockDim) + linear_threadIdx();
 #else
@@ -523,8 +525,10 @@ return 0; // TODO support CPU multithreading (multi-blocking - one thread is rea
 FUNCTION(dim3,getGridSize,(dim3 taskSize, dim3 blockSize),
     "Given the desired blockSize (threads per block) and total amount of tasks, compute a sufficient grid size"
     "Note that some blocks will not be completely occupied. You need to add manual checks in the kernels"
+    "Undefined for blockSize = 0 in some component and some large values where the used operations overflow."
     , PURITY_PURE)
 {
+    assert(0 != blockSize.x && 0 != blockSize.y && 0 != blockSize.z);
     return dim3(
         (taskSize.x + blockSize.x - 1) / blockSize.x, 
         (taskSize.y + blockSize.y - 1) / blockSize.y, 
@@ -553,8 +557,8 @@ FUNCTION(dim3,getGridSize,(dim3 taskSize, dim3 blockSize),
 
 
 _Must_inspect_result_
-FUNCTION(bool, approximatelyEqual, (float x, float y), "whether x and y differ by at most 1e-5f", PURITY_PURE){
-    return abs(x - y) < 1e-5f;
+FUNCTION(bool, approximatelyEqual, (float x, float y), "whether x and y differ by at most 1e-5f. Undefined for infinite values.", PURITY_PURE){
+    return abs(assertFinite(x) - assertFinite(y)) < 1e-5f;
 }
 
 template<typename T>
@@ -880,19 +884,20 @@ CPU_FUNCTION(void, freemalloctmemcpy, (_Inout_ T** dest, _In_reads_(n) const T* 
 
 template<typename T>
 FUNCTION(T,ROUND,(T x),
-    "prepare floating-point x for rounding-by-truncation, i.e. such that (int)ROUND(x) is the integer nearest to x", PURITY_PURE){
+    "prepare floating-point x for rounding-by-truncation, i.e. such that (int)ROUND(x) is the integer nearest to x"
+    "TODO make this obsolete, use built-in rounding instead.", PURITY_PURE){
     return ((x < 0) ? (x - 0.5f) : (x + 0.5f));
 }
 
 
 template<typename T>
-FUNCTION(T, MAX, (T x, T y), "", PURITY_PURE) {
+FUNCTION(T, MAX, (T x, T y), "TODO use built-in max, make undefined for infinite values", PURITY_PURE) {
     return x > y ? x : y;
 }
 
 
 template<typename T>
-FUNCTION(T, MIN, (T x, T y), "", PURITY_PURE)  {
+FUNCTION(T, MIN, (T x, T y), "C161", PURITY_PURE)  {
     return x < y ? x : y;
 }
 
@@ -945,7 +950,9 @@ dim3 _lastLaunch_gridDim, _lastLaunch_blockDim;
 #endif
 
 
-CPU_FUNCTION(void,reportCudaError,(cudaError err, const char * const expr, const char * const file, const int line),"");
+CPU_FUNCTION(void,reportCudaError,(cudaError err, const char * const expr, const char * const file, const int line)
+    ,"Pure insofar as it only logs things, not modifying other system/CUDA state."
+    , PURITY_PURE);
 
 CPU_FUNCTION(void,cudaCheckLaunch,(const char* const launchCommand, const char * const file, const int line),"") {
     auto err = cudaGetLastError();
@@ -1061,7 +1068,7 @@ struct Managed {
 /// tid should be 0 to 31
 /// ! Must be run by all threads of a single warp (the 32 first threads of a block) simultaneously.
 /// sdata must point to __shared__ memory
-CUDA_FUNCTION(void,warpReduce,(volatile SHAREDPTR(float*) sdata, int tid),"") {
+CUDA_FUNCTION(void,warpReduce,(volatile SHAREDPTR(float* const) sdata, const int tid),"", PURITY_OUTPUT_POINTERS) {
     // Ignore the fact that we compute some unnecessary sums.
     sdata[tid] += sdata[tid + 32];
     sdata[tid] += sdata[tid + 16];
@@ -1075,12 +1082,12 @@ CUDA_FUNCTION(void,warpReduce,(volatile SHAREDPTR(float*) sdata, int tid),"") {
 template<typename T //!< int or float
 >
 CUDA_FUNCTION(void,warpReduce256,(
-float localValue,
-volatile SHAREDPTR(float*) dim_shared1,
-int locId_local,
+const float localValue,
+volatile SHAREDPTR(float* const) dim_shared1,
+const int locId_local,
 DEVICEPTR(T*) outTotal),
 "Sums up 256 floats"
-"and atomicAdd's the final sum to a float or int in global memory") {
+"and atomicAdd's the final sum to a float or int in global memory", PURITY_OUTPUT_POINTERS) {
     dim_shared1[locId_local] = localValue;
     __syncthreads();
 
@@ -1395,7 +1402,7 @@ struct cs    /* matrix in compressed-column or triplet form . must be aligned on
     unsigned int m;	    /* number of rows > 0 */
 
     unsigned int n;	    /* number of columns  > 0 */
-    int nz;	    /* # of used entries (of x) in triplet matrix, NZ_COMPRESSED_COLUMN_INDICATOR for compressed-col, >= 0 otherwise --> must be signed*/
+    int nz;	    /* # of used entries (of x) in triplet matrix, NZ_COMPRESSED_COLUMN_INDICATOR for compressed-col, >= 0 otherwise --> must be signed TODO this will reduce the range that makes sense for nzmax.*/
 
     // Note: this order preserves 8-byte pointer (64 bit) alignment, DO NOT CHANGE
     // all pointers are always valid
@@ -1403,25 +1410,25 @@ struct cs    /* matrix in compressed-column or triplet form . must be aligned on
 
     unsigned int *i;	    /* row indices, size nzmax */
 
-    float *x;	/* numerical values, size nzmax. if cs_is_compressed_col, nzmax entries are used, if cs_is_triplet, nz many are used (use cs_x_used_entries()) */
+    float *x;	/* finite numerical values, size nzmax. if cs_is_compressed_col, nzmax entries are used, if cs_is_triplet, nz many are used (use cs_x_used_entries()) */
 
 };
 
-FUNCTION(bool, cs_is_triplet, (const cs *A), "whether A is a triplet matrix",PURITY_PURE) {
+FUNCTION(bool, cs_is_triplet, (const cs * const A), "whether A is a triplet matrix. Undefined if A does not point to a valid cs instance.",PURITY_PURE) {
     assert(A);
     return A->nz >= 0;
 }
 
 const int NZ_COMPRESSED_COLUMN_INDICATOR = -1;
 
-FUNCTION(bool, cs_is_compressed_col, (const cs *A), "whether A is a crompressed-column form matrix", PURITY_PURE) {
+FUNCTION(bool, cs_is_compressed_col, (const cs * const A), "whether A is a crompressed-column form matrix", PURITY_PURE) {
     assert(A);
     assert(A->m >= 1 && A->n >= 1);
     return A->nz == NZ_COMPRESSED_COLUMN_INDICATOR;
 }
 
 
-FUNCTION(unsigned int, cs_x_used_entries, (const cs *A), "how many entries of the x vector are actually used", PURITY_PURE) {
+FUNCTION(unsigned int, cs_x_used_entries, (const cs * const A), "how many entries of the x vector are actually used", PURITY_PURE) {
     assert(cs_is_triplet(A) != /*xor*/ cs_is_compressed_col(A));
     return cs_is_triplet(A) ? A->nz : A->nzmax;
 }
@@ -1429,7 +1436,7 @@ FUNCTION(unsigned int, cs_x_used_entries, (const cs *A), "how many entries of th
 
 // hacky arbitrary memory-management by passing
 // reduces memory_size and increases memoryPool on use
-#define MEMPOOL char*& memoryPool, /*using int to detect over-deallocation */ int& memory_size // the function taking these modifies memoryPool to point to the remaining free memory
+#define MEMPOOL _Inout_ char*& memoryPool, /*using int to detect over-deallocation */ _Inout_ int& memory_size // the function taking these modifies memoryPool to point to the remaining free memory
 #define MEMPOOLPARAM memoryPool, memory_size 
 
 
@@ -1438,6 +1445,7 @@ FUNCTION(char*, cs_malloc_, (MEMPOOL, unsigned int sz /* use unsigned int?*/),
     // assert(sz < INT_MAX) // TODO to be 100% correct, we'd have to check that memory_size + sz doesn't overflow
     assert((size_t)memory_size >= sz, "%d %d", memory_size, sz);
     assert(aligned(memoryPool, 8));
+    assert(sz, "tried to allocate 0 bytes");
     assert(divisible(sz, 8));
     auto out = memoryPool;
     memoryPool += sz;
@@ -1495,7 +1503,11 @@ FUNCTION(cs *, cs_spalloc, (const unsigned int m, const unsigned int n, const un
 }
 
 
-FUNCTION(unsigned int, cs_cumsum, (_Inout_updates_all_(n + 1) unsigned int *p, _Inout_updates_all_(n) unsigned int *c, const unsigned int n),
+FUNCTION(unsigned int, cs_cumsum, (
+    _Inout_updates_all_(n + 1) unsigned int *p, 
+    _Inout_updates_all_(n) unsigned int *c, 
+    _In_ const unsigned int n
+    ),
     "p [0..n] = cumulative sum of c [0..n-1], and then copy p [0..n-1] into c "
     ,PURITY_OUTPUT_POINTERS)
 {
@@ -1511,7 +1523,7 @@ FUNCTION(unsigned int, cs_cumsum, (_Inout_updates_all_(n + 1) unsigned int *p, _
     return (nz);		    /* return sum (c [0..n-1]) */
 }
 
-FUNCTION(unsigned int*, allocZeroedIntegers, (const int n, MEMPOOL), "Allocate n integers set to 0. Implements calloc(n, sizeof(int)). n must be even") {
+FUNCTION(unsigned int*, allocZeroedIntegers, (_In_ const int n, MEMPOOL), "Allocate n integers set to 0. Implements calloc(n, sizeof(int)). n must be even") {
     assert(divisible(n, 2));
     unsigned int* w;
     cs_malloc(w, n * sizeof(unsigned int));
@@ -1602,10 +1614,11 @@ FUNCTION(cs *, cs_triplet, (const cs * const T, MEMPOOL),
 }
 
 FUNCTION(void, cs_entry, (cs * const T, const unsigned int i, const unsigned int j, const float x),
-    "add an entry to a triplet matrix; assertion failure if there's no space for this ")
+    "add an entry to a triplet matrix; assertion failure if there's no space for this or the matrix has wrong dimensions")
 {
     assert(cs_is_triplet(T));
-    assert(i < T->m && j <= T->n); // cannot enlarge matrix
+    assert(i < T->m && j < T->n); // cannot enlarge matrix
+    assert(T->nzmax < INT_MAX, "nzmax overflows int, cannot compare with nz");
     assert(T->nz < (int)T->nzmax); // cannot enlarge matrix
     assert(T->x);
     assertFinite(x);
@@ -1615,8 +1628,48 @@ FUNCTION(void, cs_entry, (cs * const T, const unsigned int i, const unsigned int
     T->p[T->nz++] = j;
 }
 
+CPU_FUNCTION(void, cs_dump, (const cs * const A, FILE* f), "Similar to cs_print. dump a sparse matrix in the format:\n"
+    "height width\n"
+    "i j x\n"
+    "etc. Note that this format does not allow reconstructing whether the matrix was in triplet or compressed column form,"
+    "but the cc-form indices will increase more regularly than in the triplet case."
+    , PURITY_ENVIRONMENT_DEPENDENT | PURITY_OUTPUT_POINTERS) {
+    assert(f);
 
-FUNCTION(int, cs_print, (const cs * const A, int brief = 0), "print a sparse matrix")
+    unsigned int p, j, m, n, nzmax;
+    unsigned int *Ap, *Ai;
+    float *Ax;
+    m = A->m; n = A->n; Ap = A->p; Ai = A->i; Ax = A->x;
+    nzmax = A->nzmax;
+    assert(Ax);
+
+    fprintf(f, "%u %u\n", m, n);
+
+    if (cs_is_compressed_col(A))
+    {
+        for (j = 0; j < n; j++)
+        {
+            for (p = Ap[j]; p < Ap[j + 1]; p++)
+            {
+                assert(Ai[p] < m);
+                fprintf(f, "%u %u %g\n", Ai[p], j, Ax[p]);
+            }
+        }
+    }
+    else
+    {
+        auto nz = A->nz;
+        assert(nz <= (int)nzmax);
+        for (p = 0; p < (unsigned int)nz; p++)
+        {
+            assert(Ai[p] < m);
+            assert(Ap[p] < n);
+            fprintf(f, "%u %u %g\n", Ai[p], Ap[p], Ax[p]);
+        }
+    }
+}
+
+FUNCTION(int, cs_print, (const cs * const A, int brief = 0), "print a sparse matrix. Similar to cs_dump, but always writes to stdout.")
 {
     assert(A);
     unsigned int p, j, m, n, nzmax;
@@ -1665,10 +1718,18 @@ FUNCTION(int, cs_print, (const cs * const A, int brief = 0), "print a sparse mat
 }
 
 
-FUNCTION(int, cs_mv, (float * y, const float alpha, const cs * const  A, const float * const x, const float beta),
+FUNCTION(int, cs_mv, (
+    _Inout_ float * __restrict y,
+    
+    _In_ const float alpha, 
+    _In_ const cs * __restrict const  A, 
+    _In_ const float * __restrict const x,
+    _In_ const float beta),
     "y = alpha A x + beta y"
-    "the memory for y and x cannot overlap"
-    "TODO implement a version that can transpose A implicitly", PURITY_OUTPUT_POINTERS)
+    ""
+    "the memory for y, x and A cannot overlap"
+    "TODO implement a version that can transpose A implicitly"
+    "if beta == 0.f, y is never read, only written", PURITY_OUTPUT_POINTERS)
 {
     assert(A && x && y);	    /* check inputs */
     assert(cs_is_compressed_col(A));
@@ -1704,7 +1765,7 @@ FUNCTION(
     printJ,
     (cs const * const J),
     "prints a sparse matrix"
-    ){
+    , PURITY_ENVIRONMENT_DEPENDENT){
     if (dprintEnabled) cs_print(J);
 }
 
@@ -1714,17 +1775,34 @@ FUNCTION(
 
 
 
-
+// A nonempty vector of finite floats
 struct fvector {
     float* x;
-    unsigned int n;
+    unsigned int n; // > 0
 
     MEMBERFUNCTION(void, print, (), "print this fvector") {
         printv(x, n);
     }
 };
 
+CPU_FUNCTION(
+    void
+    , dump
+    , (const fvector & v, FILE* f)
+    , 
+    "Similar to fvector::print, cs_dump. dump a vector in the format:\n"
+    "n\n"
+    "x\n"
+    "etc. "
+    , PURITY_ENVIRONMENT_DEPENDENT | PURITY_OUTPUT_POINTERS) {
+    assert(f);
+    fprintf(f, "%u\n", v.n);
+    FOREACHC(y, v.x, v.n)
+        fprintf(f, "%g\n", y);
+}
+
 FUNCTION(bool, assertFinite, (_In_reads_(n) const float* const x, const unsigned int n), "assert that each element in v is finite", PURITY_PURE) {
+    assert(n > 0);
     FOREACH(y, x, n)
         assertFinite(y);
     return true;
@@ -1735,7 +1813,8 @@ FUNCTION(bool, assertFinite, (const fvector& v), "assert that each element in v 
     return true;
 }
 
-FUNCTION(fvector, vector_wrapper, (float* x, int n), "create a fvector object pointing to existing memory for convenient accessing") {
+FUNCTION(fvector, vector_wrapper, (_Inout_ float* const x, const unsigned int n), "create a fvector object pointing to existing memory for convenient accessing", PURITY_OUTPUT_POINTERS) {
+    assert(n > 0);
     fvector v;
     v.n = n;
     v.x = x;
@@ -1743,7 +1822,7 @@ FUNCTION(fvector, vector_wrapper, (float* x, int n), "create a fvector object po
     return v;
 }
 
-FUNCTION(fvector, vector_allocate, (int n, MEMPOOL), "Create a new fvector. uninitialized: must be written before it is read!") {
+FUNCTION(fvector, vector_allocate, (const unsigned int n, MEMPOOL), "Create a new fvector. uninitialized: must be written before it is read!") {
     fvector v;
     v.n = n;
     cs_malloc(v.x, sizeof(float) * nextEven(v.n));
@@ -1762,17 +1841,17 @@ FUNCTION(fvector, vector_copy, (const fvector& other, MEMPOOL), "create a copy o
 struct matrix {
     const cs* const mat; // in compressed column form (transpose does not work with triplets)
 
-    __declspec(property(get = getRows)) int rows;
-    MEMBERFUNCTION(int, getRows, (), "m", PURITY_PURE) const {
+    __declspec(property(get = getRows)) unsigned int rows;
+    MEMBERFUNCTION(unsigned int, getRows, (), "m", PURITY_PURE) const {
         return mat->m;
     }
-    __declspec(property(get = getCols)) int cols;
-    MEMBERFUNCTION(int, getCols, (), "n", PURITY_PURE) const {
+    __declspec(property(get = getCols)) unsigned int cols;
+    MEMBERFUNCTION(unsigned int, getCols, (), "n", PURITY_PURE) const {
         return mat->n;
     }
 
 
-    MEMBERFUNCTION(, matrix, (const cs* const mat), "construct a matrix wrapper") : mat(mat) {
+    MEMBERFUNCTION(, matrix, (const cs* const mat), "construct a matrix wrapper", PURITY_OUTPUT_POINTERS) : mat(mat) {
         assert(!cs_is_triplet(mat));
         assert(mat->m && mat->n);
         assertFinite(mat->x, cs_x_used_entries(mat));
@@ -1786,27 +1865,29 @@ struct matrix {
 };
 
 
-FUNCTION(float, dot, (const fvector& x, const fvector& y), "result = <x, y>, aka x.y or x^T y (the dot-product of x and y)", PURITY_PURE){
+FUNCTION(float, dot, (const fvector& x, const fvector& y), "result = <x, y>, aka x.y or x^T y (the dot-product of x and y). Undefined if the addition overflows, finite otherwise.", PURITY_PURE){
     assert(y.n == x.n);
     float r = 0;
     DO(i, x.n) r += x.x[i] * y.x[i];
-    return r;
+    return assertFinite(r);
 }
 
-FUNCTION(void, axpy, (fvector& y, const float alpha, const fvector& x), "y = alpha * x + y", PURITY_OUTPUT_POINTERS) {
+FUNCTION(void, axpy, (_Inout_ fvector& y, const float alpha, const fvector& x), "y = alpha * x + y", PURITY_OUTPUT_POINTERS) {
     assert(y.n == x.n);
-    DO(i, x.n) y.x[i] += alpha * x.x[i];
+    assert(assertFinite(alpha));
+    DO(i, x.n) assertFinite(y.x[i] += alpha * x.x[i]);
 }
 
-FUNCTION(void, axpy, (fvector& y, const fvector& x), "y = x + y", PURITY_OUTPUT_POINTERS) {
+FUNCTION(void, axpy, (_Inout_ fvector& y, const fvector& x), "y = x + y", PURITY_OUTPUT_POINTERS) {
     axpy(y, 1, x);
 }
 
-FUNCTION(void, scal, (fvector& x, const float alpha), "x *= alpha", PURITY_OUTPUT_POINTERS){
-    DO(i, x.n) x.x[i] *= alpha;
+FUNCTION(void, scal, (_Inout_ fvector& x, const float alpha), "x *= alpha", PURITY_OUTPUT_POINTERS){
+    assert(assertFinite(alpha));
+    DO(i, x.n) assertFinite(x.x[i] *= alpha);
 }
 
-FUNCTION(void, mv, (fvector& y, const float alpha, const matrix& A, const fvector& x, const float beta),
+FUNCTION(void, mv, (_Inout_ fvector& y, const float alpha, const matrix& A, const fvector& x, const float beta),
     "y = alpha A x + beta y", PURITY_OUTPUT_POINTERS){
     assert(A.mat->m && A.mat->n);
     assert(y.n == A.mat->m);
@@ -1814,7 +1895,7 @@ FUNCTION(void, mv, (fvector& y, const float alpha, const matrix& A, const fvecto
     cs_mv(y.x, alpha, A.mat, x.x, beta);
 }
 
-FUNCTION(void, mv, (fvector& y, const matrix& A, const fvector& x), "y = A x", PURITY_OUTPUT_POINTERS){
+FUNCTION(void, mv, (_Out_ fvector& y, const matrix& A, const fvector& x), "y = A x", PURITY_OUTPUT_POINTERS){
     mv(y, 1, A, x, 0);
 }
 
@@ -1852,7 +1933,7 @@ FUNCTION(void, conjgrad_normal, (
 {
     memoryPush(); //savepoint: anything allocated after this can be freed again
 
-    int m = A.rows, n = A.cols;
+    unsigned int m = A.rows, n = A.cols;
 
     matrix AT = transpose(A, MEMPOOLPARAM); // TODO implement an mv that does transposing in-place
 
@@ -1869,19 +1950,21 @@ FUNCTION(void, conjgrad_normal, (
 
     Ap = vector_allocate(A.cols, MEMPOOLPARAM);
 
-    for (unsigned int i = 1; i <= b.n; i++) {
+    REPEAT(b.n) {
+
         mv(t, A, p); mv(Ap, AT, t);//t = A*p;Ap=A^T*t;//Ap=A^T*A*p;
 
-        if (abs(dot(p, Ap)) < 1e-9) { printf("conjgrad_normal emergency exit\n"); break; }// avoid almost division by 0
+        if (abs(dot(p, Ap)) < 1e-9) { printf("conjgrad_normal emergency exit\n"); goto end; }// avoid almost division by 0
         float alpha = assertFinite(rsold / (dot(p, Ap)));//alpha=rsold/(p'*Ap);
 
         axpy(x, alpha, p);//x = alpha p + x;//x=x+alpha*p;
         axpy(r, -alpha, Ap);//r = -alpha*Ap + r;//r=r-alpha*Ap;
         float rsnew = dot(r, r);//rsnew=r'*r;
-        if (sqrt(rsnew) < 1e-5) break; // error tolerance, might also limit amount of iterations or check change in rsnew to rsold...
+        if (sqrt(rsnew) < 1e-5) goto end; // error tolerance, might also limit amount of iterations or check change in rsnew to rsold...
         float beta = assertFinite(rsnew / rsold);
         scal(p, beta); axpy(p, r);//p*=(rsnew/rsold); p = r + p;//p=r+(rsnew/rsold)*p;
         rsold = rsnew;//rsold=rsnew;
+
     }
 
 end:
@@ -1996,16 +2079,20 @@ template<typename f> class SOPDProblem;
 // f as in SOPDProblem
 // one separate SOP (for one P in Q), shares only "x" with the global problem
 // has custom y, p and values derived from that
-// pointers are all to __managed__ memory, instances of this shall live in managed memory
-// F() is another function for each partition P. It is defined as (f(s_p(x)))_{p in P}
+// pointers are all nonzero to __managed__ memory
+// instances of SOPPartition shall live in managed memory
+//
+// Note: Conceptually, F() is another function for each partition P: It is defined as
+//   F(x) = (f(sigma_p(x)))_{p in P}
 template<typename f>
 struct SOPPartition {
     typedef f fType;
 
-    float* minusFx; unsigned int lengthFx; // "-F(x)"
-    float* h; unsigned int lengthY; // "h, the update to y (subset of x, the parameters currently optimized over)"
+    float* minusFx; unsigned int lengthFx; // "-F(x)", length > 0, manually kept up-to-date using xIndices and the x vector in the parent sopd
+    float* h; unsigned int lengthY; // > 0 "h, the update to y (subset of x, the parameters currently optimized over)"
 
     /*
+    > 0
     "amount of 'points' at which the function f is evaluated."
     "lengthP * lengthz is the length of xIndices, "
     "and sparseDerivativeZtoYIndices contains lengthP sequences of the form (k [k many z indices] [k many y indices]) "
@@ -2030,14 +2117,16 @@ struct SOPPartition {
 
 // Extract information about global SOPD from sop partition
 
-#define _lengthz(sop) std::remove_reference<decltype(*(sop))>::type::fType::lengthz
-#define _lengthfz(sop) std::remove_reference<decltype(*(sop))>::type::fType::lengthfz
+// assumes the template-parameter is always called f
+#define _lengthz(sop) f::lengthz //((sop)->sopd->lengthz)
+#define _lengthfz(sop) f::lengthfz //((sop)->sopd->lengthfz)
+
 #define _lengthx(sop) ((sop)->sopd->lengthx)
 #define _x(sop) ((sop)->sopd->x)
 
 
 template<typename f>
-FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool buildFx), "");
+FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, const bool buildFx), "");
 template<typename f>
 FUNCTION(void, solve, (SOPPartition<f>* const sop, cs const * const J, MEMPOOL), "");
 template<typename f>
@@ -2069,7 +2158,12 @@ public:
         _In_ const vector<float>& x,
         _In_ const vector<vector<unsigned int>>& xIndicesPerPartition,
         _In_ const vector<vector<unsigned int>>& yIndicesPerPartition,
-        _In_ const vector<vector<unsigned int>>& sparseDerivativeZtoYIndicesPerPartition),"") : partitions(restrictSize(xIndicesPerPartition.size())), lengthx(restrictSize(x.size())), partitionTable(0) {
+        _In_ const vector<vector<unsigned int>>& sparseDerivativeZtoYIndicesPerPartition),"") : 
+        partitions(restrictSize(xIndicesPerPartition.size())), 
+        lengthx(restrictSize(x.size())), 
+        partitionTable(0)
+        //,lengthz(f::lengthz), lengthfz(f::lengthfz)
+        {
 
 
         assert(x.size() > 0);
@@ -2106,7 +2200,7 @@ public:
         }
     }
 
-    CPU_MEMBERFUNCTION(float, getEnergy, (), "" /*const -- but will recompute Fx to be sure*/){
+    CPU_MEMBERFUNCTION(float, getEnergy, (), "TODO could be parallelized" /*const, conceptually pure -- but will recompute Fx to be sure*/){
         assert(this);
         assert((__int64)(this) != 0xccccccccccccccccull);
         float e = 0.f;
@@ -2114,13 +2208,13 @@ public:
         return e;
     }
 
-    CPU_MEMBERFUNCTION(void, solve, (_In_ const unsigned int iterations = 1), "") {
+    MEMBERFUNCTION(void, solve, (_In_ const unsigned int iterations = 1), "") {
 
         dprintf("SOPDProblem::solve\n");
-        DO(i, partitions) buildFxAndJFxAndSolveRepeatedly(i, iterations); // TODO parallelize partitions
+        DO(i, partitions) buildFxAndJFxAndSolveRepeatedly(i, iterations); // TODO GPU parallelize partitions
     }
 
-    CPU_MEMBERFUNCTION(vector<float>, getX, (), "") {
+    CPU_MEMBERFUNCTION(vector<float>, getX, () const, "") {
         auto xv = vector<float>(x, x + lengthx);
         return xv;
     }
@@ -2144,6 +2238,8 @@ public:
     // "stores the current data vector 'x' which is updated to reduce the energy ||F(x)||^2", of length lengthx
     float* /*const*/ x; // to __managed__ memory
     const unsigned int lengthx; // > 0 
+
+    //const unsigned int lengthz; // > 0  const unsigned int lengthfz; // > 0 
 
 private:
     SOPPartition<f>* /*const*/ partitionTable; // to __managed__ memory
@@ -2210,7 +2306,7 @@ private:
     // note that these have to be members for accessing partitions
 
     // this could be a non-member if I find out how to access lengthz
-    CPU_MEMBERFUNCTION(
+    MEMBERFUNCTION(
         void,
         buildFxAndJFxAndSolve,
         (SOPPartition<f> * const sop, bool buildFx),
@@ -2226,9 +2322,9 @@ private:
         // Build F and JF
 
         const unsigned int maxNNZ = MIN((
-            std::remove_reference<decltype(*sop)>::type::fType::lengthfz // TODO does this work in CUDA? if not, just make lengthfz a data member of sop or sop->sopd
+            f::lengthfz 
             *
-            std::remove_reference<decltype(*sop)>::type::fType::lengthz
+            f::lengthz
             ) * sop->lengthP // very pessimistic estimate/overestimation: assume every derivative figures for every P -- usually not all of them will be needed
 
             // LIMIT by matrix size (usually much bigger except in very small cases)
@@ -2269,7 +2365,7 @@ private:
         FREESOMEMEM();
     }
 
-    CPU_MEMBERFUNCTION(
+    MEMBERFUNCTION(
         void,
         buildFxAndJFxAndSolveRepeatedly,
         (const unsigned int partition, const unsigned int iterations),
@@ -2285,6 +2381,8 @@ private:
         assert(iterations > 0); // TODO iterations should be size_t
 
         DO(i, iterations) {
+            printf("\n--- iteration %d of %d in partition %d of %d ===\n", i, iterations, partition, partitions);
+
             bool buildFx = i == 0; // Fx is always up-to date after first iteration
 
             buildFxAndJFxAndSolve(sop, buildFx);
@@ -2318,7 +2416,7 @@ private:
     */
 };
 
-FUNCTION(void, writeJFx, (cs* const J, const unsigned int i, const unsigned int j, const float x),
+FUNCTION(void, writeJFx, (_Inout_ cs* const J, const unsigned int i, const unsigned int j, const float x),
     "set J(i, j) = x"
     ) {
     assert(J);
@@ -2331,7 +2429,7 @@ FUNCTION(void, writeJFx, (cs* const J, const unsigned int i, const unsigned int 
 }
 
 template<typename f>
-FUNCTION(void, writeFx, (SOPPartition<f>* const sop, const unsigned int i, const float val), "F(x)_i = val") {
+FUNCTION(void, writeFx, (_Inout_ SOPPartition<f>* const sop, const unsigned int i, const float val), "F(x)_i = val") {
     assert(i < sop->lengthFx);
     assert(sop->minusFx);
     assertFinite(val);
@@ -2374,11 +2472,11 @@ using only elementary C constructs
 // TODO move these functions to SOPPartition instead of passing the pointer all the time
 template<typename f>
 FUNCTION(void, readZ, (
-    SOPPartition<f> const * const sop,
+    _In_ SOPPartition<f> const * const sop,
 
     _Out_writes_all_(lengthz) float* z,
     const size_t rowz
-    ), "z = x[[xIndices[[rowz;;rowz+lengthz-1]]]]"){
+    ), "z = x[[xIndices[[rowz;;rowz+lengthz-1]]]]", PURITY_OUTPUT_POINTERS){
     assert(divisible(rowz, _lengthz(sop)));
 
     extract(z, sop->sopd->x, sop->sopd->lengthx, sop->xIndices + rowz, _lengthz(sop)); // z = x[[xIndices]] // only place where x & lengthz is accessed
@@ -2387,11 +2485,11 @@ FUNCTION(void, readZ, (
 
 template<typename f>
 FUNCTION(void, readZandSetFxRow, (
-    SOPPartition<f>* const sop,
+    _Inout_ SOPPartition<f>* const sop,
     _Out_writes_all_(lengthz) float* z,
     const unsigned int rowz,
     const unsigned int rowfz
-    ), "compute and store Fx[[rowfz;;rowfz+lengthfz-1]] = f(z) and return the z = x[[xIndices[[rowz;;rowz+lengthz-1]]]] required for that"){
+    ), "compute and store Fx[[rowfz;;rowfz+lengthfz-1]] = f(z) and return the z = x[[xIndices[[rowz;;rowz+lengthz-1]]]] required for that", PURITY_OUTPUT_POINTERS){
     assert(divisible(rowz, _lengthz(sop)));
     assert(divisible(rowfz, _lengthfz(sop)));
 
@@ -2405,16 +2503,16 @@ FUNCTION(void, readZandSetFxRow, (
 
 template<typename f>
 FUNCTION(void, setFxRow, (
-    SOPPartition<f>* const sop,
+    _Inout_ SOPPartition<f>* const sop,
     const unsigned int rowz,
     const unsigned int rowfz
-    ), "compute and store Fx[[rowfz;;rowfz+lengthfz-1]]"){
+    ), "compute and store Fx[[rowfz;;rowfz+lengthfz-1]]", PURITY_OUTPUT_POINTERS){
     float z[_lengthz(sop)];
     readZandSetFxRow(sop, z, rowz, rowfz);
 }
 
 template<typename f>
-FUNCTION(void, buildFx, (SOPPartition<f>* const sop), "from the current x, computes just F(x)"){
+FUNCTION(void, buildFx, (_Inout_ SOPPartition<f>* const sop), "from the current x, computes just F(x)"){
     unsigned int rowz = 0;
     unsigned int rowfz = 0;
 
@@ -2425,7 +2523,7 @@ FUNCTION(void, buildFx, (SOPPartition<f>* const sop), "from the current x, compu
 }
 
 template<typename f>
-FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool buildFx),
+FUNCTION(void, buildFxandJFx, (_Inout_ SOPPartition<f>* const sop, cs* const J, const bool buildFx),
     "from the current x, computes F(x) [if buildFx == true] and JF(x)"
     "Note that J is stored into the matrix pointed to"
     "this J must by in triplet form and have allocated enough space to fill in the computed df"
@@ -2442,6 +2540,8 @@ FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool bui
             readZandSetFxRow(sop, z, rowz, rowfz);
         else
             readZ(sop, z, rowz);
+
+        // MAKE_CONST(z) {
 
         // deserialize sparseDerivativeZtoYIndices, c.f. flattenSparseDerivativeZtoYIndices
         // convert back to two lists of integers of the same length (K)
@@ -2460,6 +2560,7 @@ FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool bui
 
             float localJColumn[_lengthfz(sop)];
             f::df(zIndex, z, localJColumn);// the only place df is called
+            // MAKE_CONST(localJColumn) {
 
             // put in the right place (starting at rowfz, column yIndex)
             DO(j, _lengthfz(sop)) {
@@ -2475,16 +2576,39 @@ FUNCTION(void, buildFxandJFx, (SOPPartition<f>* const sop, cs* const J, bool bui
 template<typename f>
 FUNCTION(void,
     solve,
-    (SOPPartition<f>* const sop, cs const * const J, MEMPOOL),
+    (_Inout_ SOPPartition<f>* const sop, _In_ cs const * const J, MEMPOOL),
     "assumes x, -Fx and J have been built"
     "computes the adjustment fvector h, which is the least-squares solution to the system"
     "Jh = -Fx"
-    ) {
+    , PURITY_OUTPUT_POINTERS) {
     assert(J && sop && _lengthx(sop) && _x(sop) && sop->minusFx && sop->h);
     assert(cs_is_compressed_col(J));
 
     printf("sparse leastSquares (cg) %d x %d... (this might take a while)\n",
         J->m, J->n);
+
+    // dump J
+#define DUMP_LS 1
+#if !GPU_CODE && DUMP_LS
+    if (J->n > 1000) {
+        {
+            puts("dumping to J.txt\n");
+            FILE* file = fopen("J.txt", "wb");
+            assert(file);
+            cs_dump(J, file);
+            fclose(file);
+        }
+
+        {
+            puts("dumping to minusFx.txt\n");
+            FILE* file = fopen("minusFx.txt", "wb");
+            assert(file);
+            dump(vector_wrapper(sop->minusFx, sop->lengthFx), file);
+            fclose(file);
+        }
+    }
+#endif
+    //
 
     assert(sop->lengthY > 0);
 
@@ -2492,6 +2616,17 @@ FUNCTION(void,
     memset(sop->h, 0, sizeof(float) * sop->lengthY); // not lengthFx! -- in page writing error -- use struct fvector to keep fvector always with its length (existing solutions?)
 
     cs_cg(J, sop->minusFx, sop->h, MEMPOOLPARAM);
+
+
+#if !GPU_CODE && DUMP_LS
+    {
+        puts("dumping least squares solution to h.txt\n");
+        FILE* file = fopen("h.txt", "wb");
+        assert(file);
+        dump(vector_wrapper(sop->h, sop->lengthY), file);
+        fclose(file);
+    }
+#endif
 
     dprintf("h:\n"); printv(sop->h, sop->lengthY);
     assertFinite(sop->h, sop->lengthY);
@@ -2501,17 +2636,17 @@ template<typename f>
 FUNCTION(
     float,
     norm2Fx,
-    (SOPPartition<f> const * const sop), "Assuming F(x) is computed, returns ||F(x)||_2^2"
+    (_In_ SOPPartition<f> const * const sop), "Assuming F(x) is already computed, returns ||F(x)||_2^2", PURITY_PURE
     ) {
     assert(sop->minusFx);
     float x = 0;
-    DO(i, sop->lengthFx) x += sop->minusFx[i] * sop->minusFx[i];
+    FOREACHC(y, sop->minusFx, sop->lengthFx) x += y * y;
     return assertFinite(x);
 }
 
 
 template<typename f>
-FUNCTION(float, getPartitionEnergy, (SOPPartition<f>* const sop), "") {
+FUNCTION(float, getPartitionEnergy, (_Inout_ SOPPartition<f>* const sop), "Returns the 2-norm of the Fx vector, computing it from the current x first.", PURITY_OUTPUT_POINTERS) {
     buildFx(sop);
     return norm2Fx(sop);
 }
@@ -2520,10 +2655,10 @@ template<typename f>
 FUNCTION(
     float,
     addContinuouslySmallerMultiplesOfHtoXUntilNorm2FxIsSmallerThanBefore,
-    (SOPPartition<f> * const sop),
+    (_Inout_ SOPPartition<f> * const sop),
     "scales h such that F(x0 + h) < F(x) in the 2-norm and updates x = x0 + h"
     "returns total energy delta achieved which should be negative but might not be when the iteration count is exceeded"
-    ) {
+    , PURITY_OUTPUT_POINTERS) {
     assert(sop);
     assert(sop->yIndices);
     assert(sop->minusFx);
@@ -2558,7 +2693,7 @@ FUNCTION(
     }
     dprintf("optimization finishes, total energy change: %f\n", norm2Faty0 - norm2Fatx0);
     /*assert(norm2Faty0 - norm2Fatx0 <= 0.);*/ // might not be true if early out was used
-    return norm2Faty0 - norm2Fatx0;
+    return assertFinite(norm2Faty0 - norm2Fatx0);
 }
 
 // Interface
@@ -2585,7 +2720,7 @@ FUNCTION(void,
     "Note: lengthz, lengthfz are fixed at compile-time for other functions"
     "This is a prototyping function that does not allocate or copy anything"
     "use for testing"
-    ) {
+    , PURITY_PURE) {
 
     const unsigned int lengthP = xIndicesLength / lengthz;
     const unsigned int lengthY = yIndicesLength;
@@ -2610,11 +2745,8 @@ FUNCTION(void,
     dprintf("sparseDerivativeZtoYIndices:\n");
     const unsigned int* p = sparseDerivativeZtoYIndices;
 
-    // TODO develop REPEAT(n) macro loop
-    DO(i, lengthP) {
-        DBG_UNREFERENCED_LOCAL_VARIABLE(i);
-
-        unsigned int k = *p++;
+    REPEAT(lengthP) {
+        const unsigned int k = *p++;
         assert(k <= lengthz);
         dprintf("---\n");
         printd(p, k); p += k;
@@ -2626,8 +2758,7 @@ FUNCTION(void,
 
     dprintf("xIndices:\n");
     p = xIndices;
-    DO(i, lengthP) {
-        DBG_UNREFERENCED_LOCAL_VARIABLE(i);
+    REPEAT(lengthP) {
         printd(p, lengthz);
         p += lengthz;
     }
@@ -2647,14 +2778,14 @@ FUNCTION(
     (
     const unsigned int m,
     const unsigned int n,
-    _In_reads_(xlen) float* x,
-    unsigned int xlen,
-    _In_reads_(ijlen) int* ij,
+    _In_reads_(xlen) float const * /*const */x,
+    /*const */unsigned int xlen,
+    _In_reads_(ijlen) int const * /*const */ ij,
     const unsigned int ijlen
     ),
     "Creates a sparse matrix from a list of values and a list of pairs of (i, j) indices specifying where to put the corresponding values (triplet form)"
     "Note: This is a prototyping function without any further purpose"
-    ) {
+    , PURITY_PURE) {
     assert(2 * xlen == ijlen);
     assert(xlen <= m*n); // don't allow repeated entries
 
@@ -2799,17 +2930,17 @@ TEST(mainc) {
 
 
 
-/*
-Given nonempty v, build locator such that for all a
-either locator[a] is undefined or
-v[locator[a]] == a
-
-locator should initially be empty
-*/
 template<typename A>
 CPU_FUNCTION(
-void,build_locator,(_In_ const vector<A>& v, _Out_ unordered_map<A, unsigned int>& locator),"",
-PURITY_OUTPUT_POINTERS){
+void,build_locator,(_In_ const vector<A>& v, _Out_ unordered_map<A, unsigned int>& locator),
+
+"Given nonempty v, build locator such that for all a"
+"either locator[a] is undefined or"
+"v[locator[a]] == a"
+""
+"locator should initially be empty"
+
+,PURITY_OUTPUT_POINTERS){
     assert(v.size() > 0);
     assert(locator.size() == 0); // locator's constructor will have been called, so 6001 doesn't apply here
 
@@ -2874,19 +3005,22 @@ f(a) == v[g(a)] for all a for which f is defined
 
 g crashes when supplied an argument for which f was not defined.
 v & g should be empty initially.
+
+A and B must be valid parameters for unordered_map.
 */
 template<typename A, typename B>
 CPU_FUNCTION(
     void, linearize, (_In_ const unordered_map<A, B>& f, _Out_ vector<B>& v, _Out_ unordered_map<A,unsigned int>& g), "", PURITY_OUTPUT_POINTERS) {
     printf("linearize start %d\n", f.size());
     assert(f.size() > 0);
+    assert(f.size() <= UINT_MAX);
     assert(v.size() == 0);
     assert(g.size() == 0);
 
     v.resize(f.size());
     g.reserve(f.size());
 
-    unsigned int i = 0;
+    unsigned int i = 0; 
     for (const auto& fa : f) {
         v[i] = fa.second;
         g[fa.first] = i;
@@ -2948,10 +3082,10 @@ _Inout_ unordered_map<A, B>& f,
 _In_ const vector<B>& v, 
 _In_ const unordered_map<A, unsigned int>& g
 ), "", PURITY_OUTPUT_POINTERS) {
-
     assert(f.size() > 0);
+
     assert(v.size() == f.size());
-    assert(g.size() > 0);
+    assert(g.size() == f.size());
 
     for (auto& fa : f) {
         auto i = g.at(fa.first);
@@ -3030,7 +3164,10 @@ void ,SOPxIndices,(
         sigma(p, zatp); //zatp  // const auto zatp = sigma(p);
 
         for (const auto& z : zatp) {
-            xIndices[i++] = locateInX.at(z); // 'fatal program exit requested' if you call this with a z that is not defined (can happen if the set of data and the set of points are such that sigma tries to access points that don't exist).
+            assert(definedQ(locateInX, z), "attempted to locate a variable in x that is not there");
+            xIndices[i++] = locateInX.at(z); 
+            // 'fatal program exit requested' if you call this with a z that is not defined
+            // (can happen if the set of data and the set of points are such that sigma tries to access points that don't exist).
         }
     }
     assert(i == xIndices.size());
@@ -3715,8 +3852,39 @@ TEST(trueTest) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // 2 to 4 & X dimensional linear algebra library
 // TODO consider using this with range-checked datatypes and overflow-avoiding integers
+// Better yet, search a standard library which compiles for CUDA
 
 namespace vecmath {
 
@@ -5618,7 +5786,6 @@ namespace vecmath {
         // w is an "Euler vector", i.e. the vector "axis of rotation (u) * theta" (axis angle representation)
         const Vector3f w = params.r;
         const float theta_sq = dot(w, w), theta = sqrt(theta_sq);
-        const float inv_theta = 1.0f / theta;
 
         const Vector3f t = params.t;
 
@@ -5637,6 +5804,8 @@ namespace vecmath {
             C = 1 / 6.f - theta_sq / 120; // Series[c, {t, 0, 2}]
         }
         else {
+            assert(theta != 0.f);
+            const float inv_theta = 1.0f / theta;
             A = sinf(theta) * inv_theta;
             B = (1.0f - cosf(theta)) * (inv_theta * inv_theta);
             C = (1.0f - A) * (inv_theta * inv_theta);
@@ -5860,6 +6029,8 @@ namespace vecmath {
 
 
 
+
+
     // Framework for building and solving (linear) least squares fitting problems on the GPU
     // c.f. constructAndSolve.nb
 
@@ -5970,6 +6141,7 @@ namespace vecmath {
                 if (tid >= offset) return;
 
                 reduced_elements[tid] = Constructor::operate(reduced_elements[tid], reduced_elements[tid + offset]);
+                // TODO warp reduce on simple additions will bring further performance enhancement.
 
                 __syncthreads();
             }
@@ -5990,20 +6162,39 @@ namespace vecmath {
         }
 
         /**
+
+        Computes
+
+            Fold[Constructor::operate i.e. atomicOperate, Constructor::neutralElement, Constructor::generate /@ Range@n]
+
+        where all computed quantities are of type Constructor::ElementType,
+        assuming an associative binary operation 'operate'.
+
+        Similar to thrust algorithms, inspired by their naming, c.f. issue/suggestion: https://github.com/thrust/thrust/issues/773
+        Provides simple parameters to specify/override the CUDA scheduling (more elaborate in actual thrust library).
+        No general iterator is passed: generate() always operates on integers, but this could easily be changed.
+
         Constructor must provide:
-        * Constructor::ElementType
+        * Constructor::ElementType: The type returned by generate and neutralElement on which operate is a binary operation.
         * Constructor::generate(i) which will be called with i from 0 to n and may return false causing its result to be replaced with
         * CPU_AND_GPU Constructor::neutralElement()
-        * Constructor::operate and atomicOperate define the binary operation
+        * Constructor::operate and atomicOperate define the binary operation. atomicOperate must do the same as operate but must modify the result atomically.
 
-        Constructor::generate is run once in each CUDA thread.
+        See the examples for more details on the expected signatures.
+
+        Scheduling:
+
+        Constructor::generate is run once in each CUDA thread that is launched.
+        tid == linear_threadIdx() < n always holds when it is called.
+
         The division into threads *can* be manually specified -- doing so will not significantly affect the outcome if the Constructor is agnostic to threadIdx et.al.
         If gridDim and/or blockDim are nonzero, it will be checked for conformance with n (must be bigger than or equal).
         gridDim can be left 0,0,0 in which case it is computed as ceil(n/volume(blockDim)),1,1.
 
-        volume(blockDim) must be a power of 2 (for reduction) and <= MAX_REDUCE_BLOCK_SIZE
+        volume(blockDim) must be a power of 2 (for reduction) and <= MAX_REDUCE_BLOCK_SIZE.
+        The limit MAX_REDUCE_BLOCK_SIZE is needed because per-block shared memory is limited. TODO make this parameter externally tunable.
 
-        Both gridDim and blockDim default to one-dimension.
+        Both gridDim and blockDim default to being one-dimensional quantities (meaning y and z are 1).
         */
         template<class Constructor>
         Constructor::ElementType
@@ -6061,7 +6252,7 @@ namespace vecmath {
         ///
         /// \see construct
         template<class Constructor>
-        AtA_Atb_Add<Constructor>::Atb constructAndSolve(int n, dim3 gridDim, dim3 blockDim, Constructor::ExtraData& out_extra_sum) {
+        AtA_Atb_Add<Constructor>::Atb constructAndSolve(int n, dim3 gridDim, dim3 blockDim, Constructor::ExtraData& out_extra_sum = Constructor::ExtraData()) {
             auto result = construct<Constructor>(n, gridDim, blockDim);
             out_extra_sum = result._extraData;
             cout << result._AtA << endl;
@@ -6091,6 +6282,29 @@ namespace vecmath {
     void approxEqual(Matrix3f a, Matrix3f b, const float eps = 0.00001) {
         for (int i = 0; i < 3 * 3; i++)
             approxEqual(a.m[i], b.m[i], eps);
+    }
+
+    FUNCTION(void, assertApproxEqual, (float a, float b, int considered_initial_bits = 20, float tooSmallThreshold = 0.0001f), "crude relative float equality test", PURITY_PURE) {
+        if (abs(a) <= tooSmallThreshold && abs(b) <= tooSmallThreshold) return;
+
+        assert(considered_initial_bits > 8 + 1); // should consider at least sign and full exponent // TODO exponent may be off by 1 and the values still very close...
+        assert(considered_initial_bits <= 32);
+
+        unsigned int ai = *(unsigned int*)&a;
+        unsigned int bi = *(unsigned int*)&b;
+        auto ait = ai >> (32 - considered_initial_bits);
+        auto bit = bi >> (32 - considered_initial_bits);
+
+        assert(ait == bit, "%f != %f, %x != %x, %x != %x, considering %d bits",
+            a, b, ai, bi, ait, bit, considered_initial_bits
+            );
+    }
+
+    template<int m>
+    FUNCTION(void, assertApproxEqual, (VectorX<float, m> a, VectorX<float, m> b, int considered_initial_bits = 20), "", PURITY_PURE) {
+        for (int i = 0; i < m; i++) {
+            assertApproxEqual(a[i], b[i]);
+        }
     }
 
     TEST(testPose) {
@@ -6150,7 +6364,127 @@ namespace vecmath {
         assert(n*v == Vector4f(8, 2, 0, 0));
     }
 
-    // TODO test constructAndSolve
+
+
+
+    // test constructAndSolve
+
+
+
+    struct ConstructExampleEquation {
+        // Amount of columns, should be small
+        static const uint m = 6;
+        struct ExtraData {
+            // User specified payload to be summed up alongside:
+            uint count;
+
+            // Empty constructor must generate neutral element
+            CPU_AND_GPU ExtraData() : count(0) {}
+
+            static GPU_ONLY ExtraData add(const ExtraData& l, const ExtraData& r) {
+                ExtraData o;
+                o.count = l.count + r.count;
+                return o;
+            }
+            static GPU_ONLY void atomicAdd(DEVICEPTR(ExtraData&) result, const ExtraData& integrand) {
+                ::atomicAdd(&result.count, integrand.count);
+            }
+        };
+
+        static GPU_ONLY bool generate(const uint i, VectorX<float, m>& out_ai, float& out_bi/*[1]*/, ExtraData& out_extra) {
+            assert(threadIdx.y == threadIdx.z && threadIdx.y == 0);
+            assert(threadIdx.x < 32);
+
+            for (int j = 0; j < m; j++) {
+                out_ai[j] = 0;
+                if (i == j || i + 1 == j || i == j + 1 || i == 0 || j == 0 || i % m == j)
+                    out_ai[j] = 1;
+            }
+            out_bi = i + 1;
+
+            bool ok = blockIdx.x <= 1 /* i.e. i <= 63, since blockDim = 32 */; // or: i % 2 == 0;
+            out_extra.count = ok;
+
+            return ok;//
+            // i % 2 == 0;
+        }
+    };
+
+    TEST(constructExampleEquation) {
+        // c.f. constructAndSolve.nb
+        const int m = ConstructExampleEquation::m;
+        const int n = 512;
+
+
+        auto y = LeastSquares::construct<ConstructExampleEquation>(n, dim3(0, 0, 0), dim3(32, 1, 1));
+        assert(y._extraData.count == 64);
+
+        auto x = LeastSquares::constructAndSolve<ConstructExampleEquation>(n, dim3(0, 0, 0), dim3(32, 1, 1));
+        std::array<float, m> expect = {43.22650547302665, -10.45935368692164,
+            -10.438367760716343, -8.180392124176143,
+            -10.817604850187244, -11.47948083867651
+        };
+
+        assertApproxEqual(x, VectorX<float, m>(expect));
+    }
+
+
+    struct ConstructExampleEquation2 {
+        // Amount of columns, should be small
+        static const uint m = 6;
+        struct ExtraData {
+            // User specified payload to be summed up alongside:
+            uint count;
+
+            // Empty constructor must generate neutral element
+            CPU_AND_GPU ExtraData() : count(0) {}
+
+            static GPU_ONLY ExtraData add(const ExtraData& l, const ExtraData& r) {
+                ExtraData o;
+                o.count = l.count + r.count;
+                return o;
+            }
+            static GPU_ONLY void atomicAdd(DEVICEPTR(ExtraData&) result, const ExtraData& integrand) {
+                ::atomicAdd(&result.count, integrand.count);
+            }
+        };
+
+        static GPU_ONLY bool generate(const uint i, VectorX<float, m>& out_ai, float& out_bi/*[1]*/, ExtraData& out_extra) {
+            assert(threadIdx.y == threadIdx.z && threadIdx.y == 0);
+            assert(threadIdx.x < 32);
+
+            for (int j = 0; j < m; j++) {
+                out_ai[j] = 0;
+                if (i == j || i + 1 == j || i == j + 1 || i == 0 || j == 0 || i % m == j)
+                    out_ai[j] = 1;
+            }
+            out_bi = i + 1;
+
+            bool ok = i % 2 == 0; // <- this is the only change
+            out_extra.count = ok;
+
+            return ok;
+        }
+    };
+
+    TEST(constructExampleEquation2) {
+        // c.f. constructAndSolve.nb
+        const int m = ConstructExampleEquation2::m;
+        const int n = 512;
+
+        auto y = LeastSquares::construct<ConstructExampleEquation2>(n, dim3(0, 0, 0), dim3(32, 1, 1));
+        assert(y._extraData.count == 256);
+
+        auto x = LeastSquares::constructAndSolve<ConstructExampleEquation2>(n, dim3(0, 0, 0), dim3(32, 1, 1));
+        std::array<float, m> expect = {260.0155642023345, -85.33073929961078, -2.0155642023346445, \
+            - 86.32295719844366, 0.9766536964980332, -169.6692607003891};
+
+        assertApproxEqual(x, VectorX<float, m>(expect));
+    }
+
+
+
+
 }
 using namespace vecmath;
 
@@ -12817,7 +13151,7 @@ TEST(updateSceneData1) {
 
 
 // select energy to optimize over
-#define fSigma fSigmaReal /*fSigmaSimple*/
+#define fSigma fSigmaSimple//  fSigmaReal /*fSigmaSimple*/
 
 /*
 Local energy function defining the refinement objective.
@@ -13637,7 +13971,7 @@ void preWsMain() {
     _controlfp_s(NULL,
         0, // By default, the run-time libraries mask all floating-point exceptions. (11111...). We set to 0 (unmask) the following:
         _EM_OVERFLOW | _EM_ZERODIVIDE | _EM_INVALID
-        ); // enable all floating point exceptions' trapping behaviour except denormal (can not be changed by _controlfp_s anyways), underflow and inexact which we tolerate
+        ); // enable all floating point exceptions' trapping behaviour except for the following exceptions: denormal-result (can not be changed by _controlfp_s anyways), underflow and inexact which we tolerate
 
 
     prepareCUDAHeap();

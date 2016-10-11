@@ -27,6 +27,8 @@ $RECYCLE.BIN/
 *.cache
 x64/*
 *.ilk
+*.illk
+*.ilk
 
 # =========================
 # Operating System Files
